@@ -139,12 +139,41 @@ export const getVideoMetadata = async (url) => {
     try {
         console.log('[Metadata] Fetching metadata for:', url);
 
-        // Use simpler method with explicit flags to avoid warnings and issues
-        const metadata = await ytDlpWrap.getVideoInfo(url, {
-            dumpSingleJson: true,
-            noWarnings: true,
-            noCallHome: true,
-            skipDownload: true
+        // Use direct exec with args to have full control and bypass bot detection
+        const args = [
+            url,
+            '--dump-json',
+            '--no-warnings',
+            '--no-call-home',
+            '--skip-download',
+            '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            '--extractor-args', 'youtube:player_client=android,web'
+        ];
+
+        // Execute and collect JSON output
+        const metadata = await new Promise((resolve, reject) => {
+            const proc = ytDlpWrap.exec(args);
+            let jsonOutput = '';
+
+            proc.on('ytDlpEvent', (event, data) => {
+                if (event === 'info') {
+                    jsonOutput += data;
+                }
+            });
+
+            proc.on('close', () => {
+                try {
+                    const parsed = JSON.parse(jsonOutput);
+                    resolve(parsed);
+                } catch (e) {
+                    reject(new Error('Failed to parse metadata JSON'));
+                }
+            });
+
+            proc.on('error', (err) => {
+                console.error('[Metadata] Exec error:', err);
+                reject(err);
+            });
         });
 
         console.log('[Metadata] Successfully fetched metadata');
@@ -185,8 +214,10 @@ export const createClip = async (url, start, end, quality, onProgress) => {
         '--force-keyframes-at-cuts',
         '-f', formatParams,
         '--no-playlist',
-        '--no-warnings',  // Suppress warnings
-        '--no-call-home'   // Don't check for updates
+        '--no-warnings',
+        '--no-call-home',
+        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        '--extractor-args', 'youtube:player_client=android,web'
     ];
 
     console.log('[Clip] Executing with args:', args.join(' '));
