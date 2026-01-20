@@ -38,6 +38,12 @@ Once deployed, your API will be available at `https://your-project-name.vercel.a
 ### Authentication
 You must provide your API Key in every request via the `x-api-key` header or `key` query parameter.
 
+**Web Interface Authentication:**
+When you access your deployed site, the UI will now prompt you to enter your API Key if it's missing or invalid.
+1. Enter the API Key you configured in the Vercel "Environment Variables".
+2. Click "Verify Access".
+3. The key will be saved in your browser's local storage for future use.
+
 ### Endpoints
 
 #### 1. Get Video Metadata

@@ -11,6 +11,10 @@ import os from 'os';
 // Vercel sets VERCEL=1
 const IS_VERCEL = process.env.VERCEL === '1';
 
+// Define __dirname for ES module
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
 // Determine correct binary name and path
 const isWindows = process.platform === 'win32';
 const BINARY_NAME = isWindows ? 'yt-dlp.exe' : 'yt-dlp';

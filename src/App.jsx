@@ -1,9 +1,10 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Download, AlertTriangle, Check, Loader2 } from 'lucide-react';
 import URLInput from './components/URLInput';
 import TimeInputs from './components/TimeInputs';
 import VideoPreview from './components/VideoPreview';
 import ProgressBar from './components/ProgressBar';
+import APIKeyModal from './components/APIKeyModal';
 import { parseTime } from './utils';
 import { AnimatePresence, motion } from 'framer-motion';
 import FormatOptions from './components/FormatOptions';
@@ -15,12 +16,33 @@ function App() {
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
   const [quality, setQuality] = useState('1080');
-  // isVertical state removed
+
   const [status, setStatus] = useState('idle');
   const [progress, setProgress] = useState(null);
   const [error, setError] = useState(null);
 
+  // Auth State
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem('yt_api_key') || '');
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authError, setAuthError] = useState(null);
+
   const abortControllerRef = useRef(null);
+
+  useEffect(() => {
+    // If no key found initially, we can wait until they try an action or just let it exist.
+    // But if we want to prompt immediately IF they visit and it's deployed:
+    // For now, let's lazy load: prompt only on 401.
+    // Actually, user wants to "use it", so let's check validity if present? 
+    // No, simple lazy approach is best: If 401, show modal.
+  }, []);
+
+  const handleAuthSubmit = (key) => {
+    localStorage.setItem('yt_api_key', key);
+    setApiKey(key);
+    setShowAuthModal(false);
+    setAuthError(null);
+    // Retry last action if needed? For now just close.
+  };
 
   const fetchMetadata = async (inputUrl) => {
     if (!inputUrl) return;
@@ -28,15 +50,33 @@ function App() {
     setError(null);
     setMetadata(null);
 
+    // Try with current key. 
+    // Use env var as fallback or override if locally set? 
+    // Usually VITE_API_KEY is for build time, but here user wants dynamic personal key.
+    // We prioritize local storage key (user input) -> then env var (if built-in)
+    const activeKey = apiKey || import.meta.env.VITE_API_KEY || '';
+
     try {
-      const response = await fetch(`/api/metadata?url=${encodeURIComponent(inputUrl)}`);
+      const response = await fetch(`/api/metadata?url=${encodeURIComponent(inputUrl)}`, {
+        headers: {
+          'x-api-key': activeKey
+        }
+      });
       const data = await response.json();
+
+      if (response.status === 401) {
+        setShowAuthModal(true);
+        setAuthError('Invalid or missing API Key');
+        throw new Error('Authentication required');
+      }
 
       if (!response.ok) throw new Error(data.error || 'Failed to fetch metadata');
 
       setMetadata(data);
     } catch (err) {
-      setError(err.message);
+      if (err.message !== 'Authentication required') {
+        setError(err.message);
+      }
     } finally {
       setLoadingMetadata(false);
     }
@@ -73,10 +113,15 @@ function App() {
     setError(null);
     setProgress({ percent: 0, detail: 'Starting download...' });
 
+    const activeKey = apiKey || import.meta.env.VITE_API_KEY || '';
+
     try {
       const response = await fetch('/api/clip', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': activeKey
+        },
         body: JSON.stringify({
           url,
           start: startTime,
@@ -84,6 +129,18 @@ function App() {
           quality
         }),
       });
+
+      if (response.status === 401) {
+        setShowAuthModal(true);
+        setAuthError('Session expired or invalid key');
+        setStatus('idle');
+        return;
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Download failed');
+      }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -104,7 +161,9 @@ function App() {
             } else if (data.status === 'complete') {
               setStatus('complete');
               setProgress({ percent: 100, detail: 'Download complete!' });
-              window.location.href = `/api/download?path=${encodeURIComponent(data.filePath)}&filename=${encodeURIComponent(metadata.title)}_clip.mp4`;
+              // Use the activeKey that was used for the request (resolved from state or env)
+              // But strictly, we should use the same key. 'activeKey' is local to handleDownload scope.
+              window.location.href = `/api/download?path=${encodeURIComponent(data.filePath)}&filename=${encodeURIComponent(metadata.title)}_clip.mp4&key=${encodeURIComponent(activeKey)}`;
             } else if (data.status === 'error') {
               throw new Error(data.error);
             }
@@ -122,13 +181,26 @@ function App() {
     <>
       <div className="bg-mesh" />
       <div className="app-container">
+        {showAuthModal && (
+          <APIKeyModal onSubmit={handleAuthSubmit} error={authError} />
+        )}
+
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, ease: "easeOut" }}
           className="glass-panel"
         >
-          <h1 className="title-glow">ClipXHamza</h1>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <h1 className="title-glow" style={{ margin: 0 }}>ClipXHamza</h1>
+            <button
+              onClick={() => setShowAuthModal(true)}
+              className="text-sec"
+              style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '0.8rem', opacity: 0.7 }}
+            >
+              {apiKey ? 'Change Key' : 'Set API Key'}
+            </button>
+          </div>
 
           <URLInput
             url={url}
