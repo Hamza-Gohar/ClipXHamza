@@ -28,6 +28,43 @@ const BINARY_PATH = join(BINARY_DIR, BINARY_NAME);
 const YTDlp = YTDlpWrap.default || YTDlpWrap;
 let ytDlpWrap;
 
+const downloadFile = (url, dest) => {
+    return new Promise((resolve, reject) => {
+        const file = fs.createWriteStream(dest);
+        const protocol = url.startsWith('https') ? 'https' : 'http';
+        const client = protocol === 'https' ? import('https') : import('http');
+
+        // We use dynamic import for https/http or just require it at top if possible, 
+        // but since we are in module, let's use the global fetch or specific logic.
+        // Actually, simplest node way without deps:
+        import('https').then(https => {
+            const get = (link) => {
+                https.get(link, (response) => {
+                    // Handle redirects
+                    if (response.statusCode === 302 || response.statusCode === 301) {
+                        get(response.headers.location);
+                        return;
+                    }
+
+                    if (response.statusCode !== 200) {
+                        reject(new Error(`Failed to download: ${response.statusCode}`));
+                        return;
+                    }
+
+                    response.pipe(file);
+                    file.on('finish', () => {
+                        file.close(resolve);
+                    });
+                }).on('error', (err) => {
+                    fs.unlink(dest, () => { });
+                    reject(err);
+                });
+            };
+            get(url);
+        });
+    });
+};
+
 export const initYtDlp = async () => {
     // Ensure local bin directory exists if not on Vercel
     if (!IS_VERCEL && !fs.existsSync(BINARY_DIR)) {
@@ -36,12 +73,17 @@ export const initYtDlp = async () => {
 
     // Check if binary exists
     if (!fs.existsSync(BINARY_PATH)) {
-        console.log(`yt-dlp binary not found at ${BINARY_PATH}. Downloading...`);
+        console.log(`yt-dlp binary not found at ${BINARY_PATH}. Downloading standalone binary...`);
         try {
-            await YTDlp.downloadFromGithub(BINARY_PATH);
-            console.log('yt-dlp downloaded successfully.');
+            // Explicitly download the standalone binary for Linux to avoid python dependency
+            // GitHub Releases URL
+            const fileName = isWindows ? 'yt-dlp.exe' : 'yt-dlp_linux';
+            const downloadUrl = `https://github.com/yt-dlp/yt-dlp/releases/latest/download/${fileName}`;
 
-            // On Linux/Unix, we might need to ensure it's executable
+            await downloadFile(downloadUrl, BINARY_PATH);
+            console.log('yt-dlp standalone binary downloaded successfully.');
+
+            // On Linux/Unix, we must ensure it's executable
             if (!isWindows) {
                 fs.chmodSync(BINARY_PATH, '755');
             }
