@@ -62,7 +62,16 @@ function App() {
           'x-api-key': activeKey
         }
       });
-      const data = await response.json();
+
+      let data;
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        data = await response.json();
+      } else {
+        // Fallback for non-JSON errors (e.g., Vercel 500 pages)
+        const text = await response.text();
+        throw new Error(text.includes('<!DOCTYPE html>') ? 'Server Error (Check Vercel Logs)' : text);
+      }
 
       if (response.status === 401) {
         setShowAuthModal(true);

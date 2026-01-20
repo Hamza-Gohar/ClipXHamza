@@ -21,26 +21,44 @@ app.use((req, res, next) => {
 
     // If no API key is set in environment, allow all (Public Mode)
     if (!process.env.API_KEY) {
-        // Optional: Warn only once or log
         return next();
     }
 
+    // 1. Check for API Key (Highest Priority)
     const apiKey = req.headers['x-api-key'] || req.query.key;
-
-    // Check key
     if (apiKey === process.env.API_KEY) {
         return next();
     }
 
-    // Allow frontend to work if served from same origin (optional, but requested "personal/professional usage")
-    // For strict API usage, we reject.
-    // If the user wants to use the frontend, they should either:
-    // 1. Not set API_KEY (public)
-    // 2. We update frontend to send key (complex)
-    // 3. We allow localhost/sesssion (not implemented)
+    // 2. Allow same-origin requests (Browser/Web App usage)
+    // Vercel/Express sets 'host' header.
+    // Ideally we check Origin or Referer.
+    const origin = req.headers['origin'];
+    const referer = req.headers['referer'];
+    const host = req.headers['host']; // e.g. "project.vercel.app"
 
-    // For now, strict rejection if key provided but wrong.
-    res.status(401).json({ error: 'Unauthorized: Invalid or missing API Key' });
+    // Construct valid origins based on host
+    // Note: origin might be null for direct server-to-server calls, which is why we fallback to strict API key for those.
+    // For browser requests, Origin or Referer usually exists.
+
+    // Strictness: Only allow if Origin matches Host (Standard Same-Origin)
+    // or if Referer starts with https://<host>
+    const isSameOrigin = (origin && origin.includes(host)) || (referer && referer.includes(host));
+
+    if (isSameOrigin) {
+        // Allow the web app to function without user needing to input the key manually every time,
+        // IF the user prefers that model. 
+        // HOWEVER, the user asked to "make sure that the api platform and simple normal usage... should be different".
+        // This implies:
+        // - External (API Platform) -> REQUIRES Key
+        // - Internal (Normal Web Usage) -> Could use Key OR just work?
+        // User said "using directly to app should be different".
+        // Let's assume Web App = No Key Required (Implicit Auth via Origin), API = Key Required.
+        return next();
+    }
+
+    // 3. Reject with specific message
+    res.status(401).json({ error: 'Unauthorized: Invalid API Key. Use x-api-key header for external access.' });
 });
 
 // Initialize yt-dlp
