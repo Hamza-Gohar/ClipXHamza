@@ -4,8 +4,8 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
-
 import os from 'os';
+import https from 'https';
 
 // Determine if we are in a Vercel/Production environment
 // Vercel sets VERCEL=1
@@ -28,40 +28,43 @@ const BINARY_PATH = join(BINARY_DIR, BINARY_NAME);
 const YTDlp = YTDlpWrap.default || YTDlpWrap;
 let ytDlpWrap;
 
+let initPromise = null;
+
 const downloadFile = (url, dest) => {
     return new Promise((resolve, reject) => {
         const file = fs.createWriteStream(dest);
-        const protocol = url.startsWith('https') ? 'https' : 'http';
-        const client = protocol === 'https' ? import('https') : import('http');
 
-        // We use dynamic import for https/http or just require it at top if possible, 
-        // but since we are in module, let's use the global fetch or specific logic.
-        // Actually, simplest node way without deps:
-        import('https').then(https => {
-            const get = (link) => {
-                https.get(link, (response) => {
-                    // Handle redirects
-                    if (response.statusCode === 302 || response.statusCode === 301) {
-                        get(response.headers.location);
-                        return;
-                    }
+        const get = (link) => {
+            https.get(link, (response) => {
+                if (response.statusCode === 302 || response.statusCode === 301) {
+                    get(response.headers.location);
+                    return;
+                }
 
-                    if (response.statusCode !== 200) {
-                        reject(new Error(`Failed to download: ${response.statusCode}`));
-                        return;
-                    }
+                if (response.statusCode !== 200) {
+                    file.close();
+                    fs.unlink(dest, () => { });
+                    reject(new Error(`Failed to download: ${response.statusCode}`));
+                    return;
+                }
 
-                    response.pipe(file);
-                    file.on('finish', () => {
-                        file.close(resolve);
-                    });
-                }).on('error', (err) => {
+                response.pipe(file);
+                file.on('finish', () => {
+                    file.close(() => resolve());
+                });
+
+                file.on('error', (err) => {
+                    file.close();
                     fs.unlink(dest, () => { });
                     reject(err);
                 });
-            };
-            get(url);
-        });
+            }).on('error', (err) => {
+                file.close();
+                fs.unlink(dest, () => { });
+                reject(err);
+            });
+        };
+        get(url);
     });
 };
 
@@ -69,43 +72,62 @@ export const initYtDlp = () => {
     if (initPromise) return initPromise;
 
     initPromise = (async () => {
-        // Ensure local bin directory exists if not on Vercel
-        if (!IS_VERCEL && !fs.existsSync(BINARY_DIR)) {
-            fs.mkdirSync(BINARY_DIR, { recursive: true });
-        }
+        try {
+            console.log('[Init] Starting yt-dlp initialization...');
+            console.log('[Init] IS_VERCEL:', IS_VERCEL);
+            console.log('[Init] Platform:', process.platform);
+            console.log('[Init] BINARY_DIR:', BINARY_DIR);
+            console.log('[Init] BINARY_PATH:', BINARY_PATH);
 
-        // Check if binary exists
-        if (!fs.existsSync(BINARY_PATH)) {
-            console.log(`yt-dlp binary not found at ${BINARY_PATH}. Downloading standalone binary...`);
-            const tempPath = `${BINARY_PATH}.tmp`;
-
-            try {
-                // Explicitly download the standalone binary for Linux to avoid python dependency
-                // GitHub Releases URL
-                const fileName = isWindows ? 'yt-dlp.exe' : 'yt-dlp_linux';
-                const downloadUrl = `https://github.com/yt-dlp/yt-dlp/releases/latest/download/${fileName}`;
-
-                await downloadFile(downloadUrl, tempPath);
-
-                // On Linux/Unix, we must ensure it's executable BEFORE renaming
-                if (!isWindows) {
-                    fs.chmodSync(tempPath, 0o755);
-                }
-
-                // Atomic rename: only now it becomes visible as BINARY_PATH
-                fs.renameSync(tempPath, BINARY_PATH);
-                console.log('yt-dlp standalone binary ready.');
-
-            } catch (error) {
-                console.error('Failed to download yt-dlp:', error);
-                // Clean up temp file if it exists
-                if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-                // Reset promise so next request can try again
-                initPromise = null;
-                throw error;
+            if (!IS_VERCEL && !fs.existsSync(BINARY_DIR)) {
+                console.log('[Init] Creating binary directory...');
+                fs.mkdirSync(BINARY_DIR, { recursive: true });
             }
+
+            if (!fs.existsSync(BINARY_PATH)) {
+                console.log('[Init] Binary not found, downloading...');
+                const tempPath = `${BINARY_PATH}.tmp`;
+
+                try {
+                    const fileName = isWindows ? 'yt-dlp.exe' : 'yt-dlp_linux';
+                    const downloadUrl = `https://github.com/yt-dlp/yt-dlp/releases/latest/download/${fileName}`;
+
+                    console.log('[Init] Downloading from:', downloadUrl);
+                    console.log('[Init] Temp path:', tempPath);
+
+                    await downloadFile(downloadUrl, tempPath);
+                    console.log('[Init] Download complete, setting permissions...');
+
+                    if (!isWindows) {
+                        fs.chmodSync(tempPath, 0o755);
+                        console.log('[Init] Permissions set to 755');
+                    }
+
+                    fs.renameSync(tempPath, BINARY_PATH);
+                    console.log('[Init] Binary ready at:', BINARY_PATH);
+
+                } catch (error) {
+                    console.error('[Init] Download failed:', error);
+                    if (fs.existsSync(tempPath)) {
+                        fs.unlinkSync(tempPath);
+                        console.log('[Init] Cleaned up temp file');
+                    }
+                    initPromise = null;
+                    throw new Error(`Failed to download yt-dlp: ${error.message}`);
+                }
+            } else {
+                console.log('[Init] Binary already exists');
+            }
+
+            console.log('[Init] Creating YTDlpWrap instance...');
+            ytDlpWrap = new YTDlp(BINARY_PATH);
+            console.log('[Init] Initialization complete!');
+
+        } catch (error) {
+            console.error('[Init] Fatal error during initialization:', error);
+            initPromise = null;
+            throw error;
         }
-        ytDlpWrap = new YTDlp(BINARY_PATH);
     })();
 
     return initPromise;
