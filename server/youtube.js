@@ -144,10 +144,10 @@ export const getVideoMetadata = async (url) => {
             url,
             '--dump-json',
             '--no-warnings',
-            '--no-call-home',
             '--skip-download',
-            '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            '--extractor-args', 'youtube:player_client=android,web'
+            '--user-agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+            '--extractor-args', 'youtube:player_client=ios',
+            '--referer', 'https://www.youtube.com/'
         ];
 
         // Execute and collect JSON output
@@ -215,9 +215,9 @@ export const createClip = async (url, start, end, quality, onProgress) => {
         '-f', formatParams,
         '--no-playlist',
         '--no-warnings',
-        '--no-call-home',
-        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        '--extractor-args', 'youtube:player_client=android,web'
+        '--user-agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+        '--extractor-args', 'youtube:player_client=ios',
+        '--referer', 'https://www.youtube.com/'
     ];
 
     console.log('[Clip] Executing with args:', args.join(' '));
