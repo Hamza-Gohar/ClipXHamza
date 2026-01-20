@@ -47,7 +47,7 @@ function App() {
   const fetchMetadata = async (inputUrl) => {
     if (!inputUrl) return;
     setLoadingMetadata(true);
-    setError(null);
+    setError(null);  // Clear any previous errors
     setMetadata(null);
 
     // Try with current key. 
@@ -82,9 +82,11 @@ function App() {
       if (!response.ok) throw new Error(data.error || 'Failed to fetch metadata');
 
       setMetadata(data);
+      setError(null);  // Clear error on success
     } catch (err) {
       if (err.message !== 'Authentication required') {
         setError(err.message);
+        setMetadata(null);  // Clear metadata on error
       }
     } finally {
       setLoadingMetadata(false);
@@ -95,6 +97,8 @@ function App() {
     setUrl(newUrl);
     setStatus('idle');
     setProgress(null);
+    setError(null);  // Clear error when URL changes
+    setMetadata(null);  // Clear previous metadata
     if (newUrl.includes('youtube.com') || newUrl.includes('youtu.be')) {
       const timeoutId = setTimeout(() => fetchMetadata(newUrl), 500);
       return () => clearTimeout(timeoutId);
