@@ -133,21 +133,93 @@ export const initYtDlp = () => {
     return initPromise;
 };
 
+// Helper function to fetch metadata using YouTube Data API
+const fetchMetadataViaAPI = async (videoId) => {
+    const apiKey = process.env.YOUTUBE_API_KEY;
+    if (!apiKey) {
+        throw new Error('YouTube API key not configured');
+    }
+
+    const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails&id=${videoId}&key=${apiKey}`;
+
+    console.log('[Metadata] Fetching via YouTube Data API...');
+
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data.error) {
+        throw new Error(`YouTube API error: ${data.error.message}`);
+    }
+
+    if (!data.items || data.items.length === 0) {
+        throw new Error('Video not found');
+    }
+
+    const video = data.items[0];
+    const snippet = video.snippet;
+    const contentDetails = video.contentDetails;
+
+    // Convert ISO 8601 duration to seconds
+    const durationMatch = contentDetails.duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+    const hours = parseInt(durationMatch[1] || 0);
+    const minutes = parseInt(durationMatch[2] || 0);
+    const seconds = parseInt(durationMatch[3] || 0);
+    const duration = hours * 3600 + minutes * 60 + seconds;
+
+    return {
+        title: snippet.title,
+        duration: duration,
+        thumbnail: snippet.thumbnails.high?.url || snippet.thumbnails.default?.url,
+        channel: snippet.channelTitle,
+        id: videoId
+    };
+};
+
+// Helper function to extract video ID from YouTube URL
+const extractVideoId = (url) => {
+    const patterns = [
+        /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
+        /^([a-zA-Z0-9_-]{11})$/  // Direct video ID
+    ];
+
+    for (const pattern of patterns) {
+        const match = url.match(pattern);
+        if (match) return match[1];
+    }
+
+    return null;
+};
+
 export const getVideoMetadata = async (url) => {
     if (!ytDlpWrap) await initYtDlp();
 
     try {
         console.log('[Metadata] Fetching metadata for:', url);
 
-        // Use direct exec with args to have full control and bypass bot detection
+        // Try YouTube Data API first if API key is configured
+        if (process.env.YOUTUBE_API_KEY) {
+            try {
+                const videoId = extractVideoId(url);
+                if (videoId) {
+                    const metadata = await fetchMetadataViaAPI(videoId);
+                    console.log('[Metadata] Successfully fetched via YouTube API');
+                    return metadata;
+                }
+            } catch (apiError) {
+                console.warn('[Metadata] YouTube API failed, falling back to yt-dlp:', apiError.message);
+            }
+        } else {
+            console.log('[Metadata] No YouTube API key configured, using yt-dlp');
+        }
+
+        // Fallback to yt-dlp
         const args = [
             url,
             '--dump-json',
             '--no-warnings',
             '--skip-download',
-            '--user-agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
-            '--extractor-args', 'youtube:player_client=ios',
-            '--referer', 'https://www.youtube.com/'
+            '--extractor-args', 'youtube:player_client=tv_embedded',
+            '--no-check-certificate'
         ];
 
         // Execute and collect JSON output
@@ -176,7 +248,7 @@ export const getVideoMetadata = async (url) => {
             });
         });
 
-        console.log('[Metadata] Successfully fetched metadata');
+        console.log('[Metadata] Successfully fetched via yt-dlp');
 
         return {
             title: metadata.title,
@@ -215,9 +287,8 @@ export const createClip = async (url, start, end, quality, onProgress) => {
         '-f', formatParams,
         '--no-playlist',
         '--no-warnings',
-        '--user-agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
-        '--extractor-args', 'youtube:player_client=ios',
-        '--referer', 'https://www.youtube.com/'
+        '--extractor-args', 'youtube:player_client=tv_embedded',
+        '--no-check-certificate'
     ];
 
     console.log('[Clip] Executing with args:', args.join(' '));
