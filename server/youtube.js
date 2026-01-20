@@ -137,7 +137,18 @@ export const getVideoMetadata = async (url) => {
     if (!ytDlpWrap) await initYtDlp();
 
     try {
-        const metadata = await ytDlpWrap.getVideoInfo(url);
+        console.log('[Metadata] Fetching metadata for:', url);
+
+        // Use simpler method with explicit flags to avoid warnings and issues
+        const metadata = await ytDlpWrap.getVideoInfo(url, {
+            dumpSingleJson: true,
+            noWarnings: true,
+            noCallHome: true,
+            skipDownload: true
+        });
+
+        console.log('[Metadata] Successfully fetched metadata');
+
         return {
             title: metadata.title,
             duration: metadata.duration,
@@ -146,6 +157,7 @@ export const getVideoMetadata = async (url) => {
             id: metadata.id
         };
     } catch (error) {
+        console.error('[Metadata] Error:', error.message);
         throw new Error(`Failed to fetch metadata: ${error.message}`);
     }
 };
@@ -154,17 +166,14 @@ export const createClip = async (url, start, end, quality, onProgress) => {
     if (!ytDlpWrap) await initYtDlp();
 
     const clipId = uuidv4();
-    // Use os.tmpdir() for temp files as well
     const TEMP_DIR = os.tmpdir();
     const outputPath = join(TEMP_DIR, `${clipId}.mp4`);
 
-    // Quality format string: best video <= quality + best audio combined
-    // If exact quality not found, it falls back to 'best' due to slash syntax, 
-    // but we prioritize height limit.
-    // We prefer mp4 container.
+    console.log('[Clip] Creating clip:', { url, start, end, quality, outputPath });
+
     const formatParams = quality
         ? `bestvideo[height<=${quality}][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best`
-        : 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best';
+        : 'best[ext=mp4]/best';
 
     const section = `*${start}-${end}`;
 
@@ -175,23 +184,28 @@ export const createClip = async (url, start, end, quality, onProgress) => {
         '--ffmpeg-location', ffmpeg,
         '--force-keyframes-at-cuts',
         '-f', formatParams,
-        '--no-playlist'
+        '--no-playlist',
+        '--no-warnings',  // Suppress warnings
+        '--no-call-home'   // Don't check for updates
     ];
 
-    // Vertical formatting logic removed
+    console.log('[Clip] Executing with args:', args.join(' '));
 
     return new Promise((resolve, reject) => {
         let ytDlpEventEmitter = ytDlpWrap.exec(args);
 
         ytDlpEventEmitter.on('progress', (progress) => {
+            console.log('[Clip] Progress:', progress.percent);
             onProgress({ status: 'processing', percent: progress.percent, detail: 'Downloading and processing...' });
         });
 
         ytDlpEventEmitter.on('error', (error) => {
+            console.error('[Clip] Error:', error);
             reject(error);
         });
 
         ytDlpEventEmitter.on('close', () => {
+            console.log('[Clip] Complete, file at:', outputPath);
             resolve(outputPath);
         });
     });
