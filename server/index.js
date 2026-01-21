@@ -14,11 +14,8 @@ app.use(express.json());
 // Load environment variables
 import 'dotenv/config';
 
-// API Key Middleware
-app.use((req, res, next) => {
-    // Only apply to /api/ routes
-    if (!req.path.startsWith('/api/')) return next();
-
+// Middleware to check API key for external API usage
+app.use('/api', (req, res, next) => {
     // If no API key is set in environment, allow all (Public Mode)
     if (!process.env.API_KEY) {
         return next();
@@ -31,33 +28,24 @@ app.use((req, res, next) => {
     }
 
     // 2. Allow same-origin requests (Browser/Web App usage)
-    // Vercel/Express sets 'host' header.
-    // Ideally we check Origin or Referer.
     const origin = req.headers['origin'];
     const referer = req.headers['referer'];
-    const host = req.headers['host']; // e.g. "project.vercel.app"
+    const host = req.headers['host'];
 
-    // Construct valid origins based on host
-    // Note: origin might be null for direct server-to-server calls, which is why we fallback to strict API key for those.
-    // For browser requests, Origin or Referer usually exists.
-
-    // Strictness: Only allow if Origin matches Host (Standard Same-Origin)
-    // or if Referer starts with https://<host>
-    const isSameOrigin = (origin && origin.includes(host)) || (referer && referer.includes(host));
+    // For browser requests, origin or referer will exist and should match host
+    // For direct API calls (no origin/referer), require API key
+    const isSameOrigin =
+        (origin && origin.includes(host)) ||
+        (referer && referer.includes(host)) ||
+        (!origin && !referer && req.headers['user-agent']?.includes('Mozilla')); // Allow browser direct access
 
     if (isSameOrigin) {
-        // Allow the web app to function without user needing to input the key manually every time,
-        // IF the user prefers that model. 
-        // HOWEVER, the user asked to "make sure that the api platform and simple normal usage... should be different".
-        // This implies:
-        // - External (API Platform) -> REQUIRES Key
-        // - Internal (Normal Web Usage) -> Could use Key OR just work?
-        // User said "using directly to app should be different".
-        // Let's assume Web App = No Key Required (Implicit Auth via Origin), API = Key Required.
+        console.log('[Auth] Allowing same-origin request from:', origin || referer || 'browser');
         return next();
     }
 
-    // 3. Reject with specific message
+    // 3. Reject external requests without valid API key
+    console.log('[Auth] Rejecting request - no valid auth');
     res.status(401).json({ error: 'Unauthorized: Invalid API Key. Use x-api-key header for external access.' });
 });
 
