@@ -275,10 +275,13 @@ export const createClip = async (url, start, end, quality, onProgress) => {
     let hasCookies = false;
 
     console.log('[Clip] Creating clip:', { url, start, end, quality, outputPath });
+    console.log('[Clip] Checking for cookies...');
+    console.log('[Clip] YOUTUBE_COOKIES exists:', !!process.env.YOUTUBE_COOKIES);
+    console.log('[Clip] YOUTUBE_COOKIES length:', process.env.YOUTUBE_COOKIES?.length || 0);
 
     try {
         // Create cookie file if YOUTUBE_COOKIES environment variable is set
-        if (process.env.YOUTUBE_COOKIES) {
+        if (process.env.YOUTUBE_COOKIES && process.env.YOUTUBE_COOKIES.length > 10) {
             console.log('[Clip] Using cookies for authentication');
             // Vercel stores multi-line env vars with escaped newlines (\n as literal \n)
             // We need to convert them to actual newlines
@@ -286,8 +289,9 @@ export const createClip = async (url, start, end, quality, onProgress) => {
             fs.writeFileSync(cookieFilePath, cookieContent);
             hasCookies = true;
             console.log('[Clip] Cookie file created at:', cookieFilePath);
+            console.log('[Clip] Cookie file size:', fs.statSync(cookieFilePath).size, 'bytes');
         } else {
-            console.log('[Clip] No cookies configured, attempting without authentication');
+            console.log('[Clip] ⚠️ No cookies configured or cookies too short - download may fail!');
         }
 
         const formatParams = quality
