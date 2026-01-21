@@ -290,6 +290,9 @@ export const createClip = async (url, start, end, quality, onProgress) => {
             hasCookies = true;
             console.log('[Clip] Cookie file created at:', cookieFilePath);
             console.log('[Clip] Cookie file size:', fs.statSync(cookieFilePath).size, 'bytes');
+            // Debug: print first 200 chars to verify format
+            console.log('[Clip] Cookie file preview:', cookieContent.substring(0, 200));
+            console.log('[Clip] Line breaks detected:', cookieContent.split('\n').length, 'lines');
         } else {
             console.log('[Clip] ⚠️ No cookies configured or cookies too short - download may fail!');
         }
