@@ -280,8 +280,12 @@ export const createClip = async (url, start, end, quality, onProgress) => {
         // Create cookie file if YOUTUBE_COOKIES environment variable is set
         if (process.env.YOUTUBE_COOKIES) {
             console.log('[Clip] Using cookies for authentication');
-            fs.writeFileSync(cookieFilePath, process.env.YOUTUBE_COOKIES);
+            // Vercel stores multi-line env vars with escaped newlines (\n as literal \n)
+            // We need to convert them to actual newlines
+            const cookieContent = process.env.YOUTUBE_COOKIES.replace(/\\n/g, '\n');
+            fs.writeFileSync(cookieFilePath, cookieContent);
             hasCookies = true;
+            console.log('[Clip] Cookie file created at:', cookieFilePath);
         } else {
             console.log('[Clip] No cookies configured, attempting without authentication');
         }
