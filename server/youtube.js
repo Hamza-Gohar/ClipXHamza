@@ -270,45 +270,84 @@ export const createClip = async (url, start, end, quality, onProgress) => {
     const TEMP_DIR = os.tmpdir();
     const outputPath = join(TEMP_DIR, `${clipId}.mp4`);
 
+    // Cookie file path (if cookies are configured)
+    const cookieFilePath = join(TEMP_DIR, `cookies_${clipId}.txt`);
+    let hasCookies = false;
+
     console.log('[Clip] Creating clip:', { url, start, end, quality, outputPath });
 
-    const formatParams = quality
-        ? `bestvideo[height<=${quality}][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best`
-        : 'best[ext=mp4]/best';
+    try {
+        // Create cookie file if YOUTUBE_COOKIES environment variable is set
+        if (process.env.YOUTUBE_COOKIES) {
+            console.log('[Clip] Using cookies for authentication');
+            fs.writeFileSync(cookieFilePath, process.env.YOUTUBE_COOKIES);
+            hasCookies = true;
+        } else {
+            console.log('[Clip] No cookies configured, attempting without authentication');
+        }
 
-    const section = `*${start}-${end}`;
+        const formatParams = quality
+            ? `bestvideo[height<=${quality}][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best`
+            : 'best[ext=mp4]/best';
 
-    const args = [
-        url,
-        '--download-sections', section,
-        '-o', outputPath,
-        '--ffmpeg-location', ffmpeg,
-        '--force-keyframes-at-cuts',
-        '-f', formatParams,
-        '--no-playlist',
-        '--no-warnings',
-        '--extractor-args', 'youtube:player_client=tv_embedded',
-        '--no-check-certificate'
-    ];
+        const section = `*${start}-${end}`;
 
-    console.log('[Clip] Executing with args:', args.join(' '));
+        const args = [
+            url,
+            '--download-sections', section,
+            '-o', outputPath,
+            '--ffmpeg-location', ffmpeg,
+            '--force-keyframes-at-cuts',
+            '-f', formatParams,
+            '--no-playlist',
+            '--no-warnings',
+            '--extractor-args', 'youtube:player_client=mweb,tv_embedded',
+            '--no-check-certificate',
+            '--add-header', 'Origin:https://www.youtube.com',
+            '--add-header', 'Referer:https://www.youtube.com/'
+        ];
 
-    return new Promise((resolve, reject) => {
-        let ytDlpEventEmitter = ytDlpWrap.exec(args);
+        // Add cookies file if available
+        if (hasCookies) {
+            args.push('--cookies', cookieFilePath);
+        }
 
-        ytDlpEventEmitter.on('progress', (progress) => {
-            console.log('[Clip] Progress:', progress.percent);
-            onProgress({ status: 'processing', percent: progress.percent, detail: 'Downloading and processing...' });
+        console.log('[Clip] Executing with args:', args.join(' '));
+
+        return new Promise((resolve, reject) => {
+            let ytDlpEventEmitter = ytDlpWrap.exec(args);
+
+            ytDlpEventEmitter.on('progress', (progress) => {
+                console.log('[Clip] Progress:', progress.percent);
+                onProgress({ status: 'processing', percent: progress.percent, detail: 'Downloading and processing...' });
+            });
+
+            ytDlpEventEmitter.on('error', (error) => {
+                console.error('[Clip] Error:', error);
+                // Clean up cookie file on error
+                if (hasCookies && fs.existsSync(cookieFilePath)) {
+                    fs.unlinkSync(cookieFilePath);
+                    console.log('[Clip] Cleaned up cookie file');
+                }
+                reject(error);
+            });
+
+            ytDlpEventEmitter.on('close', () => {
+                console.log('[Clip] Complete, file at:', outputPath);
+                // Clean up cookie file on success
+                if (hasCookies && fs.existsSync(cookieFilePath)) {
+                    fs.unlinkSync(cookieFilePath);
+                    console.log('[Clip] Cleaned up cookie file');
+                }
+                resolve(outputPath);
+            });
         });
-
-        ytDlpEventEmitter.on('error', (error) => {
-            console.error('[Clip] Error:', error);
-            reject(error);
-        });
-
-        ytDlpEventEmitter.on('close', () => {
-            console.log('[Clip] Complete, file at:', outputPath);
-            resolve(outputPath);
-        });
-    });
+    } catch (error) {
+        // Clean up cookie file if creation failed
+        if (hasCookies && fs.existsSync(cookieFilePath)) {
+            fs.unlinkSync(cookieFilePath);
+            console.log('[Clip] Cleaned up cookie file after error');
+        }
+        throw error;
+    }
 };
